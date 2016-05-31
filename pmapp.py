@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# This is a generic module for parallelization ( using Threads )
+# This is a generic module for parallelization ( using Processes )
 # 
 # 
 # 
