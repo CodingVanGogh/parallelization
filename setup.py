@@ -4,7 +4,6 @@ from distutils.core import setup
 
 setup(name='plmap',
       version='1.0',
-      install_requires= ['Distutils >= 1.0'],
       description='Python Package for accomplishing tasks parallely using multi-threading and multi-processing',
       author='Lohith B R',
       packages=['plmap'],
