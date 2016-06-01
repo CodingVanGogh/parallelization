@@ -78,7 +78,7 @@ class Worker(Thread):
 
 
 
-def pmapt(func, args=[], kwargs=[], threads=10, default_output=None):
+def plmapt(func, args=[], kwargs=[], threads=10, default_output=None):
 	""" Creates the workers get them to work.
 		Returns the error and output array
 
@@ -125,6 +125,17 @@ def pmapt(func, args=[], kwargs=[], threads=10, default_output=None):
 
 
 
-
+if __name__ == "__main__":
+	def add ( a, b ) :
+		time.sleep(1)
+		return a + b 
+	inputs = [
+	[3, 5],
+	[8, 9] ,
+	[11, 12],
+	[15, 16],
+	]
+	error, output = plmapt(add, inputs , [], 4, default_output=None)
+	print output 
 
 
