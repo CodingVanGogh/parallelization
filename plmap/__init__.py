@@ -1,2 +1,2 @@
-from pmapt import pmapt
-from pmapp import pmapp
+from plmapt import plmapt
+from plmapp import plmapp
