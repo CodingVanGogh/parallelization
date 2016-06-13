@@ -6,8 +6,8 @@
 # 
 # How to use This ? 
 # 	Create a function that can do what you want to achieve with 1 parameter or 1 set of parameters
-# 	pass this function and the set of arguments to the pmapt function
-# 	pmapt will take care of parallelization for you 
+# 	pass this function and the set of arguments to the plmapt function
+# 	plmapt will take care of parallelization for you 
 # 	It will return lists of errros and outputs for the corresponding inputs
 # Eg : 
 
@@ -24,8 +24,8 @@
 # 	def add ( a, b ) :
 # 		return a + b 
 
-# 	step 2) Call the pmapt function 
-# 	error, output = pmapt(add, inputs , [], 4, default_output=None)
+# 	step 2) Call the plmapt function 
+# 	error, output = plmapt(add, inputs , [], 4, default_output=None)
 # 	print output 
 
 # The output will look like this : 
@@ -127,7 +127,7 @@ def plmapt(func, args=[], kwargs=[], threads=10, default_output=None):
 
 if __name__ == "__main__":
 	def add ( a, b ) :
-		time.sleep(1)
+		time.sleep(a)
 		return a + b 
 	inputs = [
 	[3, 5],

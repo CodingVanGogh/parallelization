@@ -6,8 +6,8 @@
 # 
 # How to use This ? 
 #   Create a function that can do what you want to achieve with 1 parameter or 1 set of parameters
-#   pass this function and the set of arguments to the pmapp function
-#   pmapp will take care of parallelization for you 
+#   pass this function and the set of arguments to the plmapp function
+#   plmapp will take care of parallelization for you 
 #   It will return lists of errors and outputs for the corresponding inputs.
 #   You can even mention the timeout period for individual input sets
 # Eg : 
@@ -25,8 +25,8 @@
 #   def add ( a, b ) :
 #       return a + b 
 
-#   step 2) Call the pmapt function 
-#   error, output = pmapt(add, inputs , [], 4, default_output=None)
+#   step 2) Call the plmapp function 
+#   error, output = plmapp(add, inputs , [], 4, default_output=None)
 #   print output 
 
 # The output will look like this : 
