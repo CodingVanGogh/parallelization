@@ -5,28 +5,28 @@
 # 
 # 
 # How to use This ? 
-# 	Create a function that can do what you want to achieve with 1 parameter or 1 set of parameters
-# 	pass this function and the set of arguments to the plmapt function
-# 	plmapt will take care of parallelization for you 
-# 	It will return lists of errros and outputs for the corresponding inputs
+#   Create a function that can do what you want to achieve with 1 parameter or 1 set of parameters
+#   pass this function and the set of arguments to the plmapt function
+#   plmapt will take care of parallelization for you 
+#   It will return lists of errros and outputs for the corresponding inputs
 # Eg : 
 
-# 	Let say you want to add these pairs of numbers. 
+#   Let say you want to add these pairs of numbers. 
 
-# 	inputs = [
-# 	[3, 5],
-# 	[8, 9] ,
-# 	[11, 12],
-# 	[15, 16],
-# 	]
+#   inputs = [
+#   [3, 5],
+#   [8, 9] ,
+#   [11, 12],
+#   [15, 16],
+#   ]
 
-# 	step 1) define the function for a single set of inputs
-# 	def add ( a, b ) :
-# 		return a + b 
+#   step 1) define the function for a single set of inputs
+#   def add ( a, b ) :
+#       return a + b 
 
-# 	step 2) Call the plmapt function 
-# 	error, output = plmapt(add, inputs , [], 4, default_output=None)
-# 	print output 
+#   step 2) Call the plmapt function 
+#   error, output = plmapt(add, inputs , [], 4, default_output=None)
+#   print output 
 
 # The output will look like this : 
 # [8, 17, 23, 31]
@@ -43,99 +43,183 @@ import csv
 import types
 
 
+PROGRESS_BAR_POLL_TIME = 1
+PROGRESS_BAR_LENGTH = 20
+
 
 class Worker(Thread):
-	""" Worker thread is the thread that actually executes the function with the given arguments
-	"""
+    """ Worker thread is the thread that actually executes the function with the given arguments
+    """
 
-	def __init__(self, thread_id, input_queue, output_queue, log_queue, default_output=None):
-		super(Worker, self).__init__(name='%s' %(thread_id ))
-		self.input_queue = input_queue
-		self.output_queue = output_queue
-		self.log_queue = log_queue
-		self.default_output = default_output
-
-
-	# run method will be called when the thread is started using thread.start() , Hence overriding run method
-	def run(self):
-		""" Pick up the task from the queue and execute it 
-			
-		""" 
-		while True:
-			try:
-				task = self.input_queue.get_nowait()
-			except:
-				break
-
-			task_id, func, args, kwargs = task
-			
-			try:
-				output = func(*args, **kwargs)
-				self.output_queue.put({ 'task_id' : task_id, 'error_code' : '0', 'error_desc' : 'None', 'output' : output})
-			except Exception, details:
-				self.output_queue.put({ 'task_id' : task_id, 'error_code' : '1', 'error_desc' : details, 'output' : self.default_output})
-				self.log_queue.put({ 'task_id' : task_id, 'error_code' : '1', 'error_desc' : details, 'output' : self.default_output})
+    def __init__(self, thread_id, input_queue, output_queue, log_queue, default_output=None, progress_details={}, progress_bar_thread=False):
+        super(Worker, self).__init__(name='%s' %(thread_id ))
+        self.input_queue = input_queue
+        self.output_queue = output_queue
+        self.log_queue = log_queue
+        self.default_output = default_output
+        self.progress_details = progress_details
+        self.progress_bar_thread = progress_bar_thread
+        self.progress_details = progress_details
 
 
 
-def plmapt(func, args=[], kwargs=[], threads=10, default_output=None):
-	""" Creates the workers get them to work.
-		Returns the error and output array
 
-	"""
-	input_queue = Queue()
-	output_queue = Queue()
-	log_queue = Queue()
+    def generate_loading_string(self, completed_tasks, total_tasks):
+        """  <percentage completed>% [< -- based on percentage completion>] Completed/Total
+        """
+        try:
+            fraction_completed = ( completed_tasks * 1.0 / total_tasks) 
+        except:
+            fraction_completed = 1 # To avoid division by Zero
 
-	bigger_array = args if len(args) > len(kwargs) else kwargs 
-	big_len = len(bigger_array)
+        percentage_complete = fraction_completed * 100
 
-	# Get the element of an array given the index, return default if index out of range
-	ag = lambda array, index, default : default if index >= len(array) else array[index]
+        dashes = int(PROGRESS_BAR_LENGTH * fraction_completed)
+        blanks = PROGRESS_BAR_LENGTH - dashes
 
-	# Load the input_queue  ( big_len = the number of tasks )
-	for _ in xrange(big_len):
-		task = ( _, func, ag(args, _, ()), ag(kwargs, _, {}))
-		input_queue.put(task)
+        bar = "[" + "-" * dashes + ">" + " " * blanks + "]"
+        fraction_display = "%s/%s" %(completed_tasks, total_tasks)
 
-	# Create workers and start them
-	list_of_workers = []
-	for i in xrange(min(threads, big_len)):
-		worker = Worker(i, input_queue, output_queue, log_queue, default_output)
-		worker.setDaemon(True)
-		list_of_workers.append(worker)
-		worker.start()
+        loading_string = "%s%% %s %s" %(percentage_complete, bar, fraction_display)
 
-	# Wait till the threads complete
-	for _ in list_of_workers:
-		_.join()
+        return loading_string
 
-	# get the outputs in an array
-	output_dicts = []
-	for output_dict in xrange(big_len):
-		output_dicts.append( output_queue.get_nowait() )
 
-	# Sort the output based on the id
-	output_sorted_dicts = sorted(output_dicts, key=lambda x : x['task_id'])
-	
-	error_array = [ (_['error_code'], _['error_desc']) for _ in output_sorted_dicts ]
-	output_array = [ _['output'] for _ in output_sorted_dicts ]
 
-	return (error_array, output_array)
+    def display_progress_bar(self):
+        """ 50%[---------->          ]5/5 
+        """
+        completed_tasks = self.progress_details['completed_tasks']
+        total_tasks = self.progress_details['total_tasks']
+
+        while completed_tasks != total_tasks:
+
+            time.sleep(PROGRESS_BAR_POLL_TIME)
+
+            completed_tasks = self.progress_details['completed_tasks']
+            total_tasks = self.progress_details['total_tasks']
+
+            
+            print self.generate_loading_string(completed_tasks, total_tasks)
+            sys.stdout.write("\033[F")
+
+
+        completed_tasks = self.progress_details['completed_tasks']
+        total_tasks = self.progress_details['total_tasks']
+        print self.generate_loading_string(completed_tasks, total_tasks)
+        
+
+
+    # run method will be called when the thread is started using thread.start() , Hence overriding run method
+    def run(self):
+        """ Pick up the task from the queue and execute it 
+            
+        """ 
+        if not self.progress_bar_thread:
+            while True:
+                try:
+                    task = self.input_queue.get_nowait()
+                except:
+                    break
+
+                task_id, func, args, kwargs = task
+                
+                try:
+                    output = func(*args, **kwargs)
+                    self.output_queue.put({ 'task_id' : task_id, 'error_code' : '0', 'error_desc' : 'None', 'output' : output})
+                except Exception, details:
+                    self.output_queue.put({ 'task_id' : task_id, 'error_code' : '1', 'error_desc' : details, 'output' : self.default_output})
+                    self.log_queue.put({ 'task_id' : task_id, 'error_code' : '1', 'error_desc' : details, 'output' : self.default_output})
+                finally:
+                    self.progress_details['completed_tasks'] += 1
+        else:
+            self.display_progress_bar()
+
+
+
+def plmapt(func, args=[], kwargs=[], threads=10, default_output=None, sort_output=True, progress_bar=False):
+    """ Create the workers and get them to work.
+        Returns the error and output array
+        Sorting the output according to the input order is optional (<sort_output>)
+        Displaying the Progress bar is optional
+    """
+    input_queue = Queue()
+    output_queue = Queue()
+    log_queue = Queue()
+
+    bigger_array = args if len(args) > len(kwargs) else kwargs 
+    big_len = len(bigger_array)
+
+    # Get the element of an array given the index, return default if index out of range
+    ag = lambda array, index, default : default if index >= len(array) else array[index]
+
+    progress_details = {'total_tasks' : big_len , 'completed_tasks' : 0}
+
+    # Load the input_queue  ( big_len = the number of tasks )
+    for _ in xrange(big_len):
+        task = ( _, func, ag(args, _, ()), ag(kwargs, _, {}))
+        input_queue.put(task)
+
+    # Create workers and start them
+    list_of_workers = []
+    for i in xrange(min(threads, big_len)):
+        worker = Worker(i, input_queue, output_queue, log_queue, default_output, progress_details)
+        worker.setDaemon(True)
+        list_of_workers.append(worker)
+        worker.start()
+
+    # If the progress bar needs to be displayed
+    if progress_bar:
+        progress_worker = Worker("-1", input_queue, output_queue, log_queue, default_output, progress_details, True)
+        progress_worker.setDaemon(True)
+        list_of_workers.append(progress_worker)
+        progress_worker.start()
+
+    # Wait till the threads complete
+    for _ in list_of_workers:
+        _.join()
+
+    # get the outputs in an array
+    output_dicts = []
+    for output_dict in xrange(big_len):
+        output_dicts.append(output_queue.get_nowait())
+
+    # Sort the output based on the id IF sorting is required
+    output_sorted_dicts =  sorted(output_dicts, key=lambda x : x['task_id']) if sort_output else output_dicts
+    
+    error_array = [ (_['error_code'], _['error_desc']) for _ in output_sorted_dicts ]
+    output_array = [ _['output'] for _ in output_sorted_dicts ]
+
+    return (error_array, output_array)
 
 
 
 if __name__ == "__main__":
-	def add ( a, b ) :
-		time.sleep(a)
-		return a + b 
-	inputs = [
-	[3, 5],
-	[8, 9] ,
-	[11, 12],
-	[15, 16],
-	]
-	error, output = plmapt(add, inputs , [], 4, default_output=None)
-	print output 
+
+    def add ( a, b ) :
+        time.sleep(a)
+        if a == 3:
+            1 / 0
+        return  (a, b,a + b) 
+
+    inputs = [
+    [3, 5],
+    [8, 9] ,
+    [4, 12],
+    [1, 16],
+    [1, 16],
+    [1, 16],
+    [1, 16],
+    [1, 16],
+    [3, 16],
+    [1, 16],
+
+    ]
+    error, output = plmapt(add, inputs , [], 4, default_output=None, progress_bar=True)
+    print output 
+    error, output = plmapt(add, inputs , [], 8, default_output=None, sort_output=False, progress_bar=True)
+    print output
+    error, output = plmapt(add, [] , [], 4, default_output=None, progress_bar=True)
+    print output 
 
 
