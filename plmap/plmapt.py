@@ -51,17 +51,14 @@ class Worker(Thread):
     """ Worker thread is the thread that actually executes the function with the given arguments
     """
 
-    def __init__(self, thread_id, input_queue, output_queue, log_queue, default_output=None, progress_details={}, progress_bar_thread=False):
-        super(Worker, self).__init__(name='%s' %(thread_id ))
+    def __init__(self, thread_id, input_queue, output_queue, default_output=None, progress_details={}, progress_bar_thread=False):
+        super(Worker, self).__init__(name='%s' %(thread_id))
         self.input_queue = input_queue
         self.output_queue = output_queue
-        self.log_queue = log_queue
         self.default_output = default_output
         self.progress_details = progress_details
         self.progress_bar_thread = progress_bar_thread
         self.progress_details = progress_details
-
-
 
 
     def generate_loading_string(self, completed_tasks, total_tasks):
@@ -87,7 +84,7 @@ class Worker(Thread):
 
 
     def display_progress_bar(self):
-        """ 50%[---------->          ]5/5 
+        """ 50%[---------->          ]5/10 
         """
         completed_tasks = self.progress_details['completed_tasks']
         total_tasks = self.progress_details['total_tasks']
@@ -103,7 +100,7 @@ class Worker(Thread):
             print self.generate_loading_string(completed_tasks, total_tasks)
             sys.stdout.write("\033[F")
 
-
+        # Display 100% completion
         completed_tasks = self.progress_details['completed_tasks']
         total_tasks = self.progress_details['total_tasks']
         print self.generate_loading_string(completed_tasks, total_tasks)
@@ -129,7 +126,6 @@ class Worker(Thread):
                     self.output_queue.put({ 'task_id' : task_id, 'error_code' : '0', 'error_desc' : 'None', 'output' : output})
                 except Exception, details:
                     self.output_queue.put({ 'task_id' : task_id, 'error_code' : '1', 'error_desc' : details, 'output' : self.default_output})
-                    self.log_queue.put({ 'task_id' : task_id, 'error_code' : '1', 'error_desc' : details, 'output' : self.default_output})
                 finally:
                     self.progress_details['completed_tasks'] += 1
         else:
@@ -145,7 +141,6 @@ def plmapt(func, args=[], kwargs=[], threads=10, default_output=None, sort_outpu
     """
     input_queue = Queue()
     output_queue = Queue()
-    log_queue = Queue()
 
     bigger_array = args if len(args) > len(kwargs) else kwargs 
     big_len = len(bigger_array)
@@ -163,14 +158,14 @@ def plmapt(func, args=[], kwargs=[], threads=10, default_output=None, sort_outpu
     # Create workers and start them
     list_of_workers = []
     for i in xrange(min(threads, big_len)):
-        worker = Worker(i, input_queue, output_queue, log_queue, default_output, progress_details)
+        worker = Worker(i, input_queue, output_queue, default_output, progress_details)
         worker.setDaemon(True)
         list_of_workers.append(worker)
         worker.start()
 
     # If the progress bar needs to be displayed
     if progress_bar:
-        progress_worker = Worker("-1", input_queue, output_queue, log_queue, default_output, progress_details, True)
+        progress_worker = Worker("-1", input_queue, output_queue, default_output, progress_details, True)
         progress_worker.setDaemon(True)
         list_of_workers.append(progress_worker)
         progress_worker.start()
@@ -221,5 +216,7 @@ if __name__ == "__main__":
     print output
     error, output = plmapt(add, [] , [], 4, default_output=None, progress_bar=True)
     print output 
+    error, output = plmapt(add, inputs , [], 8, default_output=None, sort_output=False, progress_bar=False)
+    print output
 
 
