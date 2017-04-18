@@ -44,6 +44,57 @@ import types
 
 
 
+PROGRESS_BAR_POLL_TIME = 1
+PROGRESS_BAR_LENGTH = 20
+
+
+global_lock = multiprocessing.Lock()
+
+def increment_after_lock():
+    global_lock.acquire()
+
+
+def generate_loading_string(completed_tasks, total_tasks):
+    """  <percentage completed>% [< -- based on percentage completion>] Completed/Total
+    """
+    try:
+        fraction_completed = ( completed_tasks / total_tasks) 
+    except:
+        fraction_completed = 1 # To avoid division by Zero
+
+    percentage_complete = fraction_completed * 100
+
+    dashes = int(PROGRESS_BAR_LENGTH * fraction_completed)
+    blanks = PROGRESS_BAR_LENGTH - dashes
+
+    bar = "[" + "-" * dashes + ">" + " " * blanks + "]"
+    fraction_display = "%s/%s" %(completed_tasks, total_tasks)
+
+    loading_string = "%s%% %s %s" %(percentage_complete, bar, fraction_display)
+
+    return loading_string
+
+
+def display_progress_bar(progress_details, total_tasks):
+    """ 50%[---------->          ]5/10 
+    """
+    completed_tasks = len(progress_details)
+
+    while completed_tasks != total_tasks:
+
+        time.sleep(PROGRESS_BAR_POLL_TIME)
+
+        completed_tasks = len(progress_details)
+
+        print generate_loading_string(completed_tasks, total_tasks)
+        sys.stdout.write("\033[F")
+
+    # Display 100% completion
+    completed_tasks = len(progress_details)
+    print generate_loading_string(completed_tasks, total_tasks)
+    sys.exit(0)
+
+
 
 class FunctionTimeoutException(Exception):
     """ This exception will be raised when a function takes too long to complete
@@ -58,79 +109,79 @@ def receive_signal(signum, stack):
 
 
 
-def queue_exec(input_queue, output_queue, log_queue, individual_timeout=20.0, default_output=None):
+def queue_exec(input_queue, p_id, error_list, output_list, progress_details, individual_timeout=20.0, default_output=None):
     """ This function will be executed by all the child Processes spawned by the Parent process
     """
+    if p_id != -1: # Not a progress bar process
+        signal.signal(signal.SIGALRM, receive_signal)
 
-    signal.signal(signal.SIGALRM, receive_signal)
+        while True: 
+            try:
+                loc, function, args, kwargs = input_queue.get_nowait()
+            except Exception, details:
+                break
+            
+            signal.alarm(int(individual_timeout))
 
-    while True: 
-        try:
-            id, function, args, kwargs = input_queue.get_nowait()
-        except :
-            break
-        
-        signal.alarm(int(individual_timeout))
+            try:
+                output = function(*args, **kwargs)
+                
+                error_list[loc] = (0, None)
+                output_list[loc] = output
+                print "Got the output %s for %s %s" %(output, loc, output_list)
+            except FunctionTimeoutException, details:
+                error_list[loc] = (1, details)
+                output_list[loc] = default_output
+            except Exception, details:
+                error_list[loc] = (2, details)
+                output_list[loc] = default_output
+            finally:
+                progress_details.append(1)
+            signal.alarm(0)
+        sys.exit(0)
 
-        try:
-            output = function(*args, **kwargs)
-            output_queue.put({ 'id' : id, 'output' : output, 'error_code' : '0', 'err_desc' : None })
-        except FunctionTimeoutException, details:
-            output_queue.put({ 'id' : id, 'output' : default_output, 'error_code' : '1', 'err_desc' : str(details) })
-            log_queue.put("state:MAJOR, id:{}, output:{}, err:{}, desc:{}".format(id, default_output, '1', str(details)))
-        except Exception, details:
-            log_queue.put("state:MAJOR, id:{}, output:{}, err:{}, desc:{}".format(id, default_output, '1', str(details)))
-            output_queue.put({ 'id' : id, 'output' : default_output, 'error_code' : '1', 'err_desc' : str(details) })
-            pass
-            # Log the error here 
-        signal.alarm(0)
-
-    sys.exit(0)
+    else:
+        display_progress_bar(progress_details)
 
 
 
 
 
-
-def plmapp(func, args=[], kwargs=[], processes=10, default_output=None, individual_timeout=20):
+def plmapp(func, args=[], kwargs=[], processes=10, default_output=None, progress_bar=False, individual_timeout=20):
     """ 
     """
-    input_queue = Queue()
-    output_queue = Queue()
-    log_queue = Queue()
 
     bigger_array = args if len(args) > len(kwargs) else kwargs 
     big_len = len(bigger_array)
     ag = lambda array, index, default : default if index >= len(array) else array[index]
 
+    input_queue = Queue()
+    output_errors = [ default_output for _ in xrange(big_len)]
+    output_values = [ default_output for _ in xrange(big_len)]
+    progress_details = []
+
     # Load the input queue with tasks
-    for _ in xrange(big_len):
-        task = ( _ , func, ag(args, _, ()), ag(kwargs, _, {}) ) 
+    for i in xrange(big_len):
+        task = (i, func, ag(args, i, ()), ag(kwargs, i, {})) 
         input_queue.put(task)
 
     # Create the processes
     processes = []
-    for _ in xrange(min(processes, 10)):
-        p = Process(target=queue_exec, args=(input_queue, output_queue, log_queue, individual_timeout, default_output))
+    end = min(processes, big_len)
+    start = -1 if progress_bar else 0
+
+
+    for i in xrange(start, end):
+        p = Process(target=queue_exec, args=(input_queue, i, output_errors, output_values, progress_details, individual_timeout, default_output))
         processes.append(p)
         p.start()
 
     # Wait for the processes to complete    
-    for _ in processes:
-        _.join() 
+    for process in processes:
+        process.join() 
 
-    # Get all the output dictionaries from the output queue
-    output_dicts = []
-    for output_dict in xrange(big_len):
-        output_dicts.append( output_queue.get_nowait() )
+    return output_errors, output_values
 
-    # Sort the output based on the id
-    output_sorted_dicts = sorted(output_dicts, key=lambda x : x['id'])
-
-    error_array = [ (_['error_code'], _['err_desc']) for _ in output_sorted_dicts ]
-    output_array = [ _['output'] for _ in output_sorted_dicts ]
-
-    return (error_array, output_array)
 
 
 
@@ -138,12 +189,12 @@ def plmapp(func, args=[], kwargs=[], processes=10, default_output=None, individu
 
 
 if __name__ == "__main__":
-    def do_it(a, b=8, c=10):
-        time.sleep(1)
-        return a + b  + c
+    def do_it(a):
+        time.sleep(a)
+        return a
 
     # args
-    args = [ (_,) for _ in xrange(10) ]
+    args = [[i] for i in range(10)]
     kwargs = []
     func = do_it
     threads = 8
