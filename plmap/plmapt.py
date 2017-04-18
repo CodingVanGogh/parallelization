@@ -33,41 +33,25 @@ The output will look like this :
 
 
 from __future__ import division
-from threading import Thread
-from threading import Lock
-from Queue import Queue
+
 import sys
+from Queue import Queue
+from threading import Lock, Thread
+from progress_bar import generate_loading_string
 
 PROGRESS_BAR_POLL_TIME = 1
-PROGRESS_BAR_LENGTH = 40
-
 
 class Worker(Thread):
     """ Worker thread is the thread that actually executes the function with the given arguments
     """
 
-    def __init__(self, thread_id, input_queue, default_output=None, progress_details={}):
+    def __init__(self, thread_id, input_queue, progress_details, default_output):
         super(Worker, self).__init__(name='%s' % (thread_id))
         self.input_queue = input_queue
         self.default_output = default_output
         self.progress_details = progress_details
         self.progress_bar_thread = (thread_id == -1)
 
-    def generate_loading_string(self, completed_tasks, total_tasks):
-        """  <percentage completed>% [< -- based on percentage completion>] Completed/Total
-        """
-        try:
-            fraction_completed = (completed_tasks / total_tasks)
-        except:
-            fraction_completed = 1  # To avoid division by Zero
-        percentage_complete = fraction_completed * 100
-        dashes = int(PROGRESS_BAR_LENGTH * fraction_completed)
-        blanks = PROGRESS_BAR_LENGTH - dashes
-        bar = "[" + "-" * dashes + ">" + " " * blanks + "]"
-        fraction_display = "%s/%s" % (completed_tasks, total_tasks)
-        loading_string = "%s%% %s %s" % (
-            percentage_complete, bar, fraction_display)
-        return loading_string
 
     def display_progress_bar(self):
         """ 50%[---------->          ]5/10 
@@ -78,17 +62,17 @@ class Worker(Thread):
             time.sleep(PROGRESS_BAR_POLL_TIME)
             completed_tasks = self.progress_details['completed_tasks']
             total_tasks = self.progress_details['total_tasks']
-            print self.generate_loading_string(completed_tasks, total_tasks)
+            print generate_loading_string(completed_tasks, total_tasks)
             sys.stdout.write("\033[F")
         # Display 100% completion
         completed_tasks = self.progress_details['completed_tasks']
         total_tasks = self.progress_details['total_tasks']
-        print self.generate_loading_string(completed_tasks, total_tasks)
+        print generate_loading_string(completed_tasks, total_tasks)
 
     # run method will be called when the thread is started using
     # thread.start() , Hence overriding run method
     def run(self):
-        """ Pick up the task from the queue and execute it  
+        """ Pick up the task from the queue and execute it
         """
         if not self.progress_bar_thread:
             while True:
@@ -109,6 +93,9 @@ class Worker(Thread):
                         self.progress_details['completed_tasks'] += 1
         else:
             self.display_progress_bar()
+
+
+
 
 
 def plmapt(func, args=[], kwargs=[], threads=10, default_output=None, progress_bar=False):
@@ -143,7 +130,7 @@ def plmapt(func, args=[], kwargs=[], threads=10, default_output=None, progress_b
     start = -1 if progress_bar else 0
 
     for i in xrange(start, end):
-        worker = Worker(i, input_queue, default_output, progress_details)
+        worker = Worker(i, input_queue, progress_details, default_output)
         worker.setDaemon(True)
         list_of_workers.append(worker)
         worker.start()
