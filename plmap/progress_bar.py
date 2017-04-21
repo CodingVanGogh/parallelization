@@ -1,4 +1,4 @@
-
+from __future__ import division
 
 
 
@@ -17,6 +17,5 @@ def generate_loading_string(completed_tasks, total_tasks):
     blanks = PROGRESS_BAR_LENGTH - dashes
     bar = "[" + "-" * dashes + ">" + " " * blanks + "]"
     fraction_display = "%s/%s" % (completed_tasks, total_tasks)
-    loading_string = "%s%% %s %s" % (
-        percentage_complete, bar, fraction_display)
+    loading_string = "%s%% %s %s" % (percentage_complete, bar, fraction_display)
     return loading_string

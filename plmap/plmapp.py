@@ -31,9 +31,11 @@
 
 # The output will look like this : 
 # [8, 17, 23, 31]
-
+from __future__ import division
 from multiprocessing import Queue
 from multiprocessing import Process
+from multiprocessing import Value
+from multiprocessing import Lock
 from pprint import pprint
 import datetime
 import sys
@@ -41,56 +43,30 @@ import os
 import time
 import signal
 import types
+from progress_bar import generate_loading_string
 
 
 
 PROGRESS_BAR_POLL_TIME = 1
-PROGRESS_BAR_LENGTH = 20
 
 
-global_lock = multiprocessing.Lock()
-
-def increment_after_lock():
-    global_lock.acquire()
 
 
-def generate_loading_string(completed_tasks, total_tasks):
-    """  <percentage completed>% [< -- based on percentage completion>] Completed/Total
-    """
-    try:
-        fraction_completed = ( completed_tasks / total_tasks) 
-    except:
-        fraction_completed = 1 # To avoid division by Zero
 
-    percentage_complete = fraction_completed * 100
-
-    dashes = int(PROGRESS_BAR_LENGTH * fraction_completed)
-    blanks = PROGRESS_BAR_LENGTH - dashes
-
-    bar = "[" + "-" * dashes + ">" + " " * blanks + "]"
-    fraction_display = "%s/%s" %(completed_tasks, total_tasks)
-
-    loading_string = "%s%% %s %s" %(percentage_complete, bar, fraction_display)
-
-    return loading_string
-
-
-def display_progress_bar(progress_details, total_tasks):
+def display_progress_bar(progress_details):
     """ 50%[---------->          ]5/10 
     """
-    completed_tasks = len(progress_details)
+    completed_tasks = progress_details['completed_tasks'].value
+    total_tasks = progress_details['total_tasks']
 
     while completed_tasks != total_tasks:
-
         time.sleep(PROGRESS_BAR_POLL_TIME)
-
-        completed_tasks = len(progress_details)
-
+        completed_tasks = progress_details['completed_tasks'].value
         print generate_loading_string(completed_tasks, total_tasks)
         sys.stdout.write("\033[F")
 
     # Display 100% completion
-    completed_tasks = len(progress_details)
+    completed_tasks = progress_details['completed_tasks'].value
     print generate_loading_string(completed_tasks, total_tasks)
     sys.exit(0)
 
@@ -109,7 +85,7 @@ def receive_signal(signum, stack):
 
 
 
-def queue_exec(input_queue, p_id, error_list, output_list, progress_details, individual_timeout=20.0, default_output=None):
+def queue_exec(input_queue, output_queue, p_id, progress_details, default_output, individual_timeout=300.0):
     """ This function will be executed by all the child Processes spawned by the Parent process
     """
     if p_id != -1: # Not a progress bar process
@@ -118,28 +94,24 @@ def queue_exec(input_queue, p_id, error_list, output_list, progress_details, ind
         while True: 
             try:
                 loc, function, args, kwargs = input_queue.get_nowait()
-            except Exception, details:
+            except:
                 break
             
             signal.alarm(int(individual_timeout))
 
             try:
                 output = function(*args, **kwargs)
-                
-                error_list[loc] = (0, None)
-                output_list[loc] = output
-                print "Got the output %s for %s %s" %(output, loc, output_list)
+                output_queue.put((loc, (0, None), output))
             except FunctionTimeoutException, details:
-                error_list[loc] = (1, details)
-                output_list[loc] = default_output
+                output_queue.put((loc, (1, details), default_output))
             except Exception, details:
-                error_list[loc] = (2, details)
-                output_list[loc] = default_output
+                output_queue.put((loc, (2, details), default_output))
             finally:
-                progress_details.append(1)
-            signal.alarm(0)
-        sys.exit(0)
+                signal.alarm(0)
+                with progress_details['process_lock']:
+                    progress_details['completed_tasks'].value += 1
 
+        sys.exit(0)
     else:
         display_progress_bar(progress_details)
 
@@ -147,18 +119,21 @@ def queue_exec(input_queue, p_id, error_list, output_list, progress_details, ind
 
 
 
-def plmapp(func, args=[], kwargs=[], processes=10, default_output=None, progress_bar=False, individual_timeout=20):
+def plmapp(func, args=[], kwargs=[], processes=10, progress_bar=False, default_output=None, individual_timeout=20):
     """ 
     """
-
     bigger_array = args if len(args) > len(kwargs) else kwargs 
     big_len = len(bigger_array)
     ag = lambda array, index, default : default if index >= len(array) else array[index]
 
     input_queue = Queue()
-    output_errors = [ default_output for _ in xrange(big_len)]
-    output_values = [ default_output for _ in xrange(big_len)]
-    progress_details = []
+    output_queue = Queue()
+    error_queue = Queue()
+
+
+    progress_details = {'completed_tasks' : Value('i', 0), 
+                        'total_tasks' : big_len, 
+                        'process_lock' : Lock()}
 
     # Load the input queue with tasks
     for i in xrange(big_len):
@@ -172,7 +147,7 @@ def plmapp(func, args=[], kwargs=[], processes=10, default_output=None, progress
 
 
     for i in xrange(start, end):
-        p = Process(target=queue_exec, args=(input_queue, i, output_errors, output_values, progress_details, individual_timeout, default_output))
+        p = Process(target=queue_exec, args=(input_queue, output_queue, i, progress_details, default_output, individual_timeout))
         processes.append(p)
         p.start()
 
@@ -180,10 +155,18 @@ def plmapp(func, args=[], kwargs=[], processes=10, default_output=None, progress
     for process in processes:
         process.join() 
 
+    output_errors = [ None for _ in xrange(big_len)]
+    output_values = [ None for _ in xrange(big_len)]
+
+    while True:
+        try:
+            loc, error_value = error_queue.get_nowait()
+            output_errors[loc] = error_value
+        except:
+            break
+
+
     return output_errors, output_values
-
-
-
 
 
 
@@ -201,7 +184,7 @@ if __name__ == "__main__":
 
     # user input ends here
     print "Start time : ", datetime.datetime.now()
-    error, output = plmapp(func, args, kwargs, threads, default_output=None)
+    error, output = plmapp(func, args, kwargs, threads, True)
     print "End time : " , datetime.datetime.now()
     print "Errors : "
     pprint(error)
